@@ -1,0 +1,2 @@
+[console_scripts]
+word-mcp-server = word_mcp_server.main:main

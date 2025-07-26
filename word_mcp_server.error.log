@@ -1,0 +1,49 @@
+2025-07-26 12:11:16,338 - word_mcp_server.word_mcp_server.server.mcp_server - ERROR - Server error: unhandled errors in a TaskGroup (1 sub-exception)
+2025-07-26 12:11:16,338 - word_mcp_server.main - ERROR - Unexpected error during MCP server startup: unhandled errors in a TaskGroup (1 sub-exception)
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/main.py", line 222, in start_server
+  |     await self.mcp_server.start()
+  |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/server/mcp_server.py", line 964, in start
+  |     async with stdio_server() as streams:
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/contextlib.py", line 217, in __aexit__
+  |     await self.gen.athrow(typ, value, traceback)
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/mcp/server/stdio.py", line 85, in stdio_server
+  |     async with anyio.create_task_group() as tg:
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/mcp/server/stdio.py", line 88, in stdio_server
+    |     yield read_stream, write_stream
+    |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/server/mcp_server.py", line 965, in start
+    |     await self.server.run(*streams)
+    | TypeError: Server.run() missing 1 required positional argument: 'initialization_options'
+    +------------------------------------
+2025-07-26 12:13:09,806 - word_mcp_server.word_mcp_server.server.mcp_server - ERROR - Server error: unhandled errors in a TaskGroup (1 sub-exception)
+2025-07-26 12:13:09,807 - word_mcp_server.main - ERROR - Unexpected error during MCP server startup: unhandled errors in a TaskGroup (1 sub-exception)
+  + Exception Group Traceback (most recent call last):
+  |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/main.py", line 222, in start_server
+  |     await self.mcp_server.start()
+  |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/server/mcp_server.py", line 964, in start
+  |     async with stdio_server() as streams:
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/contextlib.py", line 217, in __aexit__
+  |     await self.gen.athrow(typ, value, traceback)
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/mcp/server/stdio.py", line 85, in stdio_server
+  |     async with anyio.create_task_group() as tg:
+  |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/anyio/_backends/_asyncio.py", line 772, in __aexit__
+  |     raise BaseExceptionGroup(
+  | exceptiongroup.ExceptionGroup: unhandled errors in a TaskGroup (1 sub-exception)
+  +-+---------------- 1 ----------------
+    | Traceback (most recent call last):
+    |   File "/Library/Frameworks/Python.framework/Versions/3.10/lib/python3.10/site-packages/mcp/server/stdio.py", line 88, in stdio_server
+    |     yield read_stream, write_stream
+    |   File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/server/mcp_server.py", line 965, in start
+    |     await self.server.run(*streams)
+    | TypeError: Server.run() missing 1 required positional argument: 'initialization_options'
+    +------------------------------------
+2025-07-26 12:26:06,118 - word_mcp_server.main - ERROR - Unexpected error during MCP server startup: I/O operation on closed file.
+Traceback (most recent call last):
+  File "/Users/amirhossein/Desktop/mcp word/word_mcp_server/main.py", line 232, in start_server
+    print(f"✗ {error_msg}", file=sys.stderr)
+ValueError: I/O operation on closed file.

@@ -1,0 +1,24 @@
+logging:
+  backup_count: 5
+  file: word_mcp_server.log
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  max_size_mb: 100
+security:
+  allowed_paths:
+  - ~/Documents
+  - ~/Desktop
+  enable_macros: false
+  max_file_size_mb: 50
+  require_confirmation: true
+server:
+  host: localhost
+  max_concurrent_docs: 10
+  port: 8080
+  timeout_seconds: 30
+word:
+  auto_launch: true
+  backup_directory: null
+  backup_enabled: true
+  save_on_exit: true
+  visible: false

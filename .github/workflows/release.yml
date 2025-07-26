@@ -1,0 +1,137 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., 1.0.0)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        fetch-depth: 0
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+        pip install -e .[dev]
+
+    - name: Update version
+      run: |
+        python -c "
+        import re
+        from pathlib import Path
+        
+        # Update pyproject.toml
+        pyproject = Path('pyproject.toml')
+        content = pyproject.read_text()
+        content = re.sub(r'version = \"[^\"]+\"', 'version = \"${{ inputs.version }}\"', content)
+        pyproject.write_text(content)
+        
+        # Update main.py
+        main_py = Path('word_mcp_server/main.py')
+        content = main_py.read_text()
+        content = re.sub(r'version=\"[^\"]+\"', 'version=\"%(prog)s ${{ inputs.version }}\"', content)
+        main_py.write_text(content)
+        "
+
+    - name: Update CHANGELOG
+      run: |
+        python -c "
+        from pathlib import Path
+        from datetime import datetime
+        
+        changelog = Path('CHANGELOG.md')
+        content = changelog.read_text()
+        today = datetime.now().strftime('%Y-%m-%d')
+        
+        content = content.replace(
+            '## [Unreleased]',
+            f'## [Unreleased]\n\n### Added\n- TBD\n\n### Changed\n- TBD\n\n### Fixed\n- TBD\n\n## [${{ inputs.version }}] - {today}'
+        )
+        
+        changelog.write_text(content)
+        "
+
+    - name: Run tests
+      run: |
+        pytest tests/ -v
+
+    - name: Build package
+      run: |
+        python -m build
+
+    - name: Check package
+      run: |
+        twine check dist/*
+
+    - name: Commit version changes
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add pyproject.toml word_mcp_server/main.py CHANGELOG.md
+        git commit -m "Bump version to ${{ inputs.version }}"
+        git push
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ inputs.version }}
+        release_name: Release ${{ inputs.version }}
+        draft: false
+        prerelease: ${{ inputs.prerelease }}
+        body: |
+          ## Changes in ${{ inputs.version }}
+          
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+          
+          ## Installation
+          
+          ```bash
+          pip install word-mcp-server==${{ inputs.version }}
+          ```
+          
+          ## Quick Start
+          
+          1. Install the package: `pip install word-mcp-server`
+          2. Create config: `word-mcp-server --create-config`
+          3. Start server: `word-mcp-server`
+          4. Configure in Claude's MCP settings
+
+    - name: Upload Release Assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./dist/word_mcp_server-${{ inputs.version }}-py3-none-any.whl
+        asset_name: word_mcp_server-${{ inputs.version }}-py3-none-any.whl
+        asset_content_type: application/zip
+
+    - name: Publish to PyPI
+      env:
+        TWINE_USERNAME: __token__
+        TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+      run: |
+        twine upload dist/*
