@@ -6,28 +6,31 @@ This module provides the core MCP server functionality for Word automation.
 
 import asyncio
 import logging
-from typing import Any, Dict, List, Optional, Callable
 from dataclasses import dataclass
+from typing import Any, Callable, Dict, List, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Tool,
-    TextContent,
     CallToolResult,
     ListToolsResult,
+    TextContent,
+    Tool,
 )
 
-from ..utils.errors import (
-    WordMCPError, ErrorCode, ConnectionError, DocumentError, OperationError, 
-    ErrorHandler
-)
-from ..utils.logging import get_logger, get_performance_logger, get_audit_logger
-from ..utils.recovery import GracefulDegradation, RetryManager, RecoveryConfig
 from ..config.config_manager import ConfigManager
+from ..utils.errors import (
+    ConnectionError,
+    DocumentError,
+    ErrorCode,
+    ErrorHandler,
+    OperationError,
+    WordMCPError,
+)
+from ..utils.logging import get_audit_logger, get_logger, get_performance_logger
+from ..utils.recovery import GracefulDegradation, RecoveryConfig, RetryManager
 from ..word.controller import WordController
 from ..word.document_manager import DocumentManager
-
 
 logger = get_logger(__name__)
 
@@ -35,6 +38,7 @@ logger = get_logger(__name__)
 @dataclass
 class ToolDefinition:
     """Definition of an MCP tool."""
+
     name: str
     description: str
     parameters: Dict[str, Any]
@@ -43,10 +47,10 @@ class ToolDefinition:
 
 class WordMCPServer:
     """Main MCP server class implementing the MCP protocol."""
-    
+
     def __init__(self, config_manager: ConfigManager):
         """Initialize MCP server.
-        
+
         Args:
             config_manager: Configuration manager instance
         """
@@ -56,28 +60,37 @@ class WordMCPServer:
         self.tools: Dict[str, ToolDefinition] = {}
         self._running = False
         self._shutdown_event = asyncio.Event()
-        
+
         # Initialize enhanced error handling and recovery systems
         self.error_handler = ErrorHandler(logger)
         self.performance_logger = get_performance_logger(__name__)
         self.audit_logger = get_audit_logger(__name__)
         self.degradation = GracefulDegradation(logger)
         self.retry_manager = RetryManager(RecoveryConfig(), logger)
-        
+
         # Initialize Word controller and document manager
         self.word_controller: Optional[WordController] = None
         self.document_manager = DocumentManager(self.config)
-        
+
         # Set up recovery strategies
         self._setup_recovery_strategies()
-        
+
         # Initialize tool registry
         self._register_core_tools()
-        
+
         logger.info("WordMCPServer initialized with enhanced error handling")
-    
+
+    def is_running(self) -> bool:
+        """Check if the server is currently running."""
+        return self._running
+
+    async def wait_for_shutdown(self) -> None:
+        """Wait for the server to receive a shutdown signal."""
+        await self._shutdown_event.wait()
+
     def _setup_recovery_strategies(self):
         """Set up recovery strategies for different error types."""
+
         # Word connection recovery
         def recover_word_connection(error: WordMCPError):
             """Attempt to recover Word connection."""
@@ -85,42 +98,39 @@ class WordMCPServer:
                 if self.word_controller:
                     self.word_controller.disconnect()
                     self.word_controller = None
-                
+
                 # Try to reconnect
                 controller = self._ensure_word_controller()
                 return {"recovered": True, "method": "reconnection"}
             except Exception as e:
                 logger.error(f"Word connection recovery failed: {e}")
                 return {"recovered": False, "error": str(e)}
-        
+
         # Document access recovery
         def recover_document_access(error: WordMCPError):
             """Attempt to recover from document access issues."""
             try:
                 # Try alternative access methods
-                if hasattr(error, 'context') and 'path' in error.context:
-                    path = error.context['path']
+                if hasattr(error, "context") and "path" in error.context:
+                    path = error.context["path"]
                     # Could try read-only access or different file format
                     return {"recovered": False, "suggestion": "Try read-only access"}
                 return {"recovered": False}
             except Exception as e:
                 logger.error(f"Document access recovery failed: {e}")
                 return {"recovered": False, "error": str(e)}
-        
+
         # Register recovery strategies
         self.error_handler.register_recovery_strategy(
-            ErrorCode.WORD_CONNECTION_FAILED.value, 
-            recover_word_connection
+            ErrorCode.WORD_CONNECTION_FAILED.value, recover_word_connection
         )
         self.error_handler.register_recovery_strategy(
-            ErrorCode.WORD_CRASHED.value, 
-            recover_word_connection
+            ErrorCode.WORD_CRASHED.value, recover_word_connection
         )
         self.error_handler.register_recovery_strategy(
-            ErrorCode.DOCUMENT_ACCESS_DENIED.value, 
-            recover_document_access
+            ErrorCode.DOCUMENT_ACCESS_DENIED.value, recover_document_access
         )
-        
+
         # Set up fallback handlers for degraded functionality
         async def fallback_create_document(*args, **kwargs):
             """Fallback for document creation when Word is unavailable."""
@@ -128,9 +138,9 @@ class WordMCPServer:
             return {
                 "success": False,
                 "error": "Word automation unavailable - using fallback mode",
-                "fallback": True
+                "fallback": True,
             }
-        
+
         async def fallback_read_document(path: str):
             """Fallback document reading using python-docx."""
             try:
@@ -139,18 +149,18 @@ class WordMCPServer:
                     "success": True,
                     "content": result,
                     "fallback": True,
-                    "message": "Document read using fallback method"
+                    "message": "Document read using fallback method",
                 }
             except Exception as e:
                 return {
                     "success": False,
-                    "error": f"Fallback document reading failed: {e}"
+                    "error": f"Fallback document reading failed: {e}",
                 }
-        
+
         # Register fallback handlers
         self.degradation.register_fallback("create_document", fallback_create_document)
         self.degradation.register_fallback("read_document", fallback_read_document)
-    
+
     def _register_core_tools(self) -> None:
         """Register core Word operation tools."""
         # Document operations
@@ -162,13 +172,13 @@ class WordMCPServer:
                 "properties": {
                     "title": {
                         "type": "string",
-                        "description": "Optional title for the document"
+                        "description": "Optional title for the document",
                     }
-                }
+                },
             },
-            handler=self._handle_create_document
+            handler=self._handle_create_document,
         )
-        
+
         self.register_tool(
             name="open_document",
             description="Open an existing Word document",
@@ -177,154 +187,133 @@ class WordMCPServer:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document file"
+                        "description": "Path to the document file",
                     }
                 },
-                "required": ["path"]
+                "required": ["path"],
             },
-            handler=self._handle_open_document
+            handler=self._handle_open_document,
         )
-        
+
         self.register_tool(
             name="save_document",
             description="Save a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID to save"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID to save"},
                     "path": {
                         "type": "string",
-                        "description": "Optional path to save to"
-                    }
+                        "description": "Optional path to save to",
+                    },
                 },
-                "required": ["doc_id"]
+                "required": ["doc_id"],
             },
-            handler=self._handle_save_document
+            handler=self._handle_save_document,
         )
-        
+
         self.register_tool(
             name="close_document",
             description="Close a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID to close"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID to close"},
                     "save": {
                         "type": "boolean",
-                        "description": "Whether to save the document before closing (default: true)"
-                    }
+                        "description": "Whether to save the document before closing (default: true)",
+                    },
                 },
-                "required": ["doc_id"]
+                "required": ["doc_id"],
             },
-            handler=self._handle_close_document
+            handler=self._handle_close_document,
         )
-        
+
         self.register_tool(
             name="insert_text",
             description="Insert text into a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
-                    "text": {
-                        "type": "string",
-                        "description": "Text to insert"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
+                    "text": {"type": "string", "description": "Text to insert"},
                     "position": {
                         "type": "integer",
-                        "description": "Position to insert at (optional, 0-based)"
-                    }
+                        "description": "Position to insert at (optional, 0-based)",
+                    },
                 },
-                "required": ["doc_id", "text"]
+                "required": ["doc_id", "text"],
             },
-            handler=self._handle_insert_text
+            handler=self._handle_insert_text,
         )
-        
+
         self.register_tool(
             name="format_text",
             description="Apply formatting to a text range in a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "start": {
                         "type": "integer",
-                        "description": "Start position of text range (0-based)"
+                        "description": "Start position of text range (0-based)",
                     },
                     "end": {
                         "type": "integer",
-                        "description": "End position of text range (0-based)"
+                        "description": "End position of text range (0-based)",
                     },
-                    "bold": {
-                        "type": "boolean",
-                        "description": "Apply bold formatting"
-                    },
+                    "bold": {"type": "boolean", "description": "Apply bold formatting"},
                     "italic": {
                         "type": "boolean",
-                        "description": "Apply italic formatting"
+                        "description": "Apply italic formatting",
                     },
                     "underline": {
                         "type": "boolean",
-                        "description": "Apply underline formatting"
+                        "description": "Apply underline formatting",
                     },
                     "font_name": {
                         "type": "string",
-                        "description": "Font name (e.g., 'Arial', 'Times New Roman')"
+                        "description": "Font name (e.g., 'Arial', 'Times New Roman')",
                     },
                     "font_size": {
                         "type": "integer",
-                        "description": "Font size in points"
+                        "description": "Font size in points",
                     },
                     "color": {
                         "type": "string",
-                        "description": "Text color (hex, rgb, or named color)"
+                        "description": "Text color (hex, rgb, or named color)",
                     },
                     "highlight_color": {
                         "type": "string",
-                        "description": "Highlight color name"
-                    }
+                        "description": "Highlight color name",
+                    },
                 },
-                "required": ["doc_id", "start", "end"]
+                "required": ["doc_id", "start", "end"],
             },
-            handler=self._handle_format_text
+            handler=self._handle_format_text,
         )
-        
+
         self.register_tool(
             name="select_text",
             description="Select a text range in a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "start": {
                         "type": "integer",
-                        "description": "Start position of selection (0-based)"
+                        "description": "Start position of selection (0-based)",
                     },
                     "end": {
                         "type": "integer",
-                        "description": "End position of selection (0-based)"
-                    }
+                        "description": "End position of selection (0-based)",
+                    },
                 },
-                "required": ["doc_id", "start", "end"]
+                "required": ["doc_id", "start", "end"],
             },
-            handler=self._handle_select_text
+            handler=self._handle_select_text,
         )
-        
+
         self.register_tool(
             name="read_document",
             description="Read content from a Word document",
@@ -333,14 +322,14 @@ class WordMCPServer:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document file"
+                        "description": "Path to the document file",
                     }
                 },
-                "required": ["path"]
+                "required": ["path"],
             },
-            handler=self._handle_read_document
+            handler=self._handle_read_document,
         )
-        
+
         self.register_tool(
             name="get_document_info",
             description="Get comprehensive document metadata and statistics",
@@ -349,14 +338,14 @@ class WordMCPServer:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document file"
+                        "description": "Path to the document file",
                     }
                 },
-                "required": ["path"]
+                "required": ["path"],
             },
-            handler=self._handle_get_document_info
+            handler=self._handle_get_document_info,
         )
-        
+
         self.register_tool(
             name="get_document_statistics",
             description="Get document statistics (word count, page count, etc.)",
@@ -365,14 +354,14 @@ class WordMCPServer:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document file"
+                        "description": "Path to the document file",
                     }
                 },
-                "required": ["path"]
+                "required": ["path"],
             },
-            handler=self._handle_get_document_statistics
+            handler=self._handle_get_document_statistics,
         )
-        
+
         self.register_tool(
             name="extract_comments",
             description="Extract comments from a Word document",
@@ -381,14 +370,14 @@ class WordMCPServer:
                 "properties": {
                     "path": {
                         "type": "string",
-                        "description": "Path to the document file"
+                        "description": "Path to the document file",
                     }
                 },
-                "required": ["path"]
+                "required": ["path"],
             },
-            handler=self._handle_extract_comments
+            handler=self._handle_extract_comments,
         )
-        
+
         # Table and list operations (Task 5.1)
         self.register_tool(
             name="create_table",
@@ -396,125 +385,108 @@ class WordMCPServer:
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "rows": {
                         "type": "integer",
                         "description": "Number of rows (1-100)",
                         "minimum": 1,
-                        "maximum": 100
+                        "maximum": 100,
                     },
                     "cols": {
                         "type": "integer",
                         "description": "Number of columns (1-50)",
                         "minimum": 1,
-                        "maximum": 50
+                        "maximum": 50,
                     },
                     "position": {
                         "type": "integer",
-                        "description": "Position to insert at (optional, 0-based)"
-                    }
+                        "description": "Position to insert at (optional, 0-based)",
+                    },
                 },
-                "required": ["doc_id", "rows", "cols"]
+                "required": ["doc_id", "rows", "cols"],
             },
-            handler=self._handle_create_table
+            handler=self._handle_create_table,
         )
-        
+
         self.register_tool(
             name="format_table_cell",
             description="Format a table cell in a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "table_index": {
                         "type": "integer",
                         "description": "Table index (1-based)",
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "row": {
                         "type": "integer",
                         "description": "Row number (1-based)",
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "col": {
                         "type": "integer",
                         "description": "Column number (1-based)",
-                        "minimum": 1
+                        "minimum": 1,
                     },
                     "text": {
                         "type": "string",
-                        "description": "Text to insert in the cell"
+                        "description": "Text to insert in the cell",
                     },
-                    "bold": {
-                        "type": "boolean",
-                        "description": "Apply bold formatting"
-                    },
+                    "bold": {"type": "boolean", "description": "Apply bold formatting"},
                     "italic": {
                         "type": "boolean",
-                        "description": "Apply italic formatting"
+                        "description": "Apply italic formatting",
                     },
                     "font_size": {
                         "type": "integer",
-                        "description": "Font size in points"
+                        "description": "Font size in points",
                     },
-                    "font_name": {
-                        "type": "string",
-                        "description": "Font name"
-                    },
+                    "font_name": {"type": "string", "description": "Font name"},
                     "color": {
                         "type": "string",
-                        "description": "Text color (hex, rgb, or named color)"
+                        "description": "Text color (hex, rgb, or named color)",
                     },
                     "background_color": {
                         "type": "string",
-                        "description": "Cell background color (hex, rgb, or named color)"
-                    }
+                        "description": "Cell background color (hex, rgb, or named color)",
+                    },
                 },
-                "required": ["doc_id", "table_index", "row", "col"]
+                "required": ["doc_id", "table_index", "row", "col"],
             },
-            handler=self._handle_format_table_cell
+            handler=self._handle_format_table_cell,
         )
-        
+
         self.register_tool(
             name="create_list",
             description="Create a bulleted or numbered list in a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "items": {
                         "type": "array",
-                        "items": {
-                            "type": "string"
-                        },
+                        "items": {"type": "string"},
                         "description": "List of text items",
-                        "minItems": 1
+                        "minItems": 1,
                     },
                     "list_type": {
                         "type": "string",
                         "enum": ["bulleted", "numbered"],
                         "description": "Type of list (bulleted or numbered)",
-                        "default": "bulleted"
+                        "default": "bulleted",
                     },
                     "position": {
                         "type": "integer",
-                        "description": "Position to insert at (optional, 0-based)"
-                    }
+                        "description": "Position to insert at (optional, 0-based)",
+                    },
                 },
-                "required": ["doc_id", "items"]
+                "required": ["doc_id", "items"],
             },
-            handler=self._handle_create_list
+            handler=self._handle_create_list,
         )
-        
+
         # Find and replace operations (Task 5.2)
         self.register_tool(
             name="find_replace",
@@ -522,44 +494,38 @@ class WordMCPServer:
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
-                    "find_text": {
-                        "type": "string",
-                        "description": "Text to find"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
+                    "find_text": {"type": "string", "description": "Text to find"},
                     "replace_text": {
                         "type": "string",
-                        "description": "Text to replace with"
+                        "description": "Text to replace with",
                     },
                     "match_case": {
                         "type": "boolean",
                         "description": "Whether to match case (default: false)",
-                        "default": False
+                        "default": False,
                     },
                     "match_whole_word": {
                         "type": "boolean",
                         "description": "Whether to match whole words only (default: false)",
-                        "default": False
+                        "default": False,
                     },
                     "use_regex": {
                         "type": "boolean",
                         "description": "Whether to use regex patterns (default: false)",
-                        "default": False
+                        "default": False,
                     },
                     "replace_all": {
                         "type": "boolean",
                         "description": "Whether to replace all occurrences (default: true)",
-                        "default": True
-                    }
+                        "default": True,
+                    },
                 },
-                "required": ["doc_id", "find_text", "replace_text"]
+                "required": ["doc_id", "find_text", "replace_text"],
             },
-            handler=self._handle_find_replace
+            handler=self._handle_find_replace,
         )
-        
+
         # Headers, footers, and page formatting operations (Task 7)
         self.register_tool(
             name="insert_header_footer",
@@ -567,116 +533,124 @@ class WordMCPServer:
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "header_text": {
                         "type": "string",
-                        "description": "Text to insert in header (optional)"
+                        "description": "Text to insert in header (optional)",
                     },
                     "footer_text": {
                         "type": "string",
-                        "description": "Text to insert in footer (optional)"
+                        "description": "Text to insert in footer (optional)",
                     },
                     "section_index": {
                         "type": "integer",
                         "description": "Section index (1-based, default: 1)",
                         "minimum": 1,
-                        "default": 1
-                    }
+                        "default": 1,
+                    },
                 },
-                "required": ["doc_id"]
+                "required": ["doc_id"],
             },
-            handler=self._handle_insert_header_footer
+            handler=self._handle_insert_header_footer,
         )
-        
+
         self.register_tool(
             name="insert_page_break",
             description="Insert a page break or section break in a Word document",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "position": {
                         "type": "integer",
-                        "description": "Position to insert break (optional, 0-based)"
+                        "description": "Position to insert break (optional, 0-based)",
                     },
                     "break_type": {
                         "type": "string",
-                        "enum": ["page", "section_next_page", "section_continuous", "section_even_page", "section_odd_page"],
+                        "enum": [
+                            "page",
+                            "section_next_page",
+                            "section_continuous",
+                            "section_even_page",
+                            "section_odd_page",
+                        ],
                         "description": "Type of break to insert",
-                        "default": "page"
-                    }
+                        "default": "page",
+                    },
                 },
-                "required": ["doc_id"]
+                "required": ["doc_id"],
             },
-            handler=self._handle_insert_page_break
+            handler=self._handle_insert_page_break,
         )
-        
+
         self.register_tool(
             name="set_page_formatting",
             description="Set page formatting options (margins, orientation, paper size) for a document section",
             parameters={
                 "type": "object",
                 "properties": {
-                    "doc_id": {
-                        "type": "string",
-                        "description": "Document ID"
-                    },
+                    "doc_id": {"type": "string", "description": "Document ID"},
                     "section_index": {
                         "type": "integer",
                         "description": "Section index (1-based, default: 1)",
                         "minimum": 1,
-                        "default": 1
+                        "default": 1,
                     },
                     "margins": {
                         "type": "object",
                         "properties": {
                             "top": {
                                 "type": "number",
-                                "description": "Top margin in points"
+                                "description": "Top margin in points",
                             },
                             "bottom": {
                                 "type": "number",
-                                "description": "Bottom margin in points"
+                                "description": "Bottom margin in points",
                             },
                             "left": {
                                 "type": "number",
-                                "description": "Left margin in points"
+                                "description": "Left margin in points",
                             },
                             "right": {
                                 "type": "number",
-                                "description": "Right margin in points"
-                            }
+                                "description": "Right margin in points",
+                            },
                         },
-                        "description": "Margin settings in points (72 points = 1 inch)"
+                        "description": "Margin settings in points (72 points = 1 inch)",
                     },
                     "orientation": {
                         "type": "string",
                         "enum": ["portrait", "landscape"],
-                        "description": "Page orientation"
+                        "description": "Page orientation",
                     },
                     "paper_size": {
                         "type": "string",
-                        "enum": ["letter", "a4", "legal", "executive", "a3", "a5", "b4", "b5", "tabloid"],
-                        "description": "Paper size"
-                    }
+                        "enum": [
+                            "letter",
+                            "a4",
+                            "legal",
+                            "executive",
+                            "a3",
+                            "a5",
+                            "b4",
+                            "b5",
+                            "tabloid",
+                        ],
+                        "description": "Paper size",
+                    },
                 },
-                "required": ["doc_id"]
+                "required": ["doc_id"],
             },
-            handler=self._handle_set_page_formatting
+            handler=self._handle_set_page_formatting,
         )
-        
+
         logger.info(f"Registered {len(self.tools)} core tools")
-    
-    def register_tool(self, name: str, description: str, parameters: Dict[str, Any], 
-                     handler: Callable) -> None:
+
+    def register_tool(
+        self, name: str, description: str, parameters: Dict[str, Any], handler: Callable
+    ) -> None:
         """Register a new tool with the server.
-        
+
         Args:
             name: Tool name
             description: Tool description
@@ -684,16 +658,14 @@ class WordMCPServer:
             handler: Function to handle tool calls
         """
         tool_def = ToolDefinition(
-            name=name,
-            description=description,
-            parameters=parameters,
-            handler=handler
+            name=name, description=description, parameters=parameters, handler=handler
         )
         self.tools[name] = tool_def
         logger.debug(f"Registered tool: {name}")
-    
+
     def setup_handlers(self) -> None:
         """Set up MCP protocol handlers."""
+
         @self.server.list_tools()
         async def handle_list_tools() -> ListToolsResult:
             """Handle list tools request."""
@@ -702,54 +674,65 @@ class WordMCPServer:
                 tool = Tool(
                     name=tool_def.name,
                     description=tool_def.description,
-                    inputSchema=tool_def.parameters
+                    inputSchema=tool_def.parameters,
                 )
                 tools.append(tool)
-            
+
             logger.debug(f"Listed {len(tools)} tools")
             return ListToolsResult(tools=tools)
-        
+
         @self.server.call_tool()
-        async def handle_call_tool(name: str, arguments: Dict[str, Any]) -> CallToolResult:
+        async def handle_call_tool(
+            name: str, arguments: Dict[str, Any]
+        ) -> CallToolResult:
             """Handle tool call request with enhanced error handling."""
             # Log tool call for audit
             self.audit_logger.log_tool_call(name, arguments)
-            
+
             if name not in self.tools:
                 error = WordMCPError(
                     f"Unknown tool: {name}",
                     error_code=ErrorCode.TOOL_NOT_FOUND.value,
-                    context={"tool_name": name, "available_tools": list(self.tools.keys())}
+                    context={
+                        "tool_name": name,
+                        "available_tools": list(self.tools.keys()),
+                    },
                 )
                 error_response = self.error_handler.handle_error(error)
-                
-                self.audit_logger.log_tool_call(name, arguments, success=False, error=error.message)
-                
+
+                self.audit_logger.log_tool_call(
+                    name, arguments, success=False, error=error.message
+                )
+
                 return CallToolResult(
                     content=[TextContent(type="text", text=str(error_response))],
-                    isError=True
+                    isError=True,
                 )
-            
+
             tool_def = self.tools[name]
-            
+
             # Use performance logging to track operation duration
-            async with self.performance_logger.log_operation(f"tool_{name}", {"arguments": arguments}):
+            async with self.performance_logger.log_operation(
+                f"tool_{name}", {"arguments": arguments}
+            ):
                 try:
                     # Execute with graceful degradation support
                     result = await self.degradation.execute_with_fallback(
-                        name, tool_def.handler, arguments
+                        name, tool_def.handler, **arguments
                     )
-                    
+
                     # Log successful tool call
-                    self.audit_logger.log_tool_call(name, arguments, success=True, result=result)
-                    
+                    self.audit_logger.log_tool_call(
+                        name, arguments, success=True, result=result
+                    )
+
                     # Handle error results
                     if isinstance(result, dict) and result.get("error"):
                         return CallToolResult(
                             content=[TextContent(type="text", text=str(result))],
-                            isError=True
+                            isError=True,
                         )
-                    
+
                     # Format successful result
                     if isinstance(result, str):
                         content_text = result
@@ -757,236 +740,228 @@ class WordMCPServer:
                         content_text = str(result)
                     else:
                         content_text = str(result)
-                    
+
                     return CallToolResult(
                         content=[TextContent(type="text", text=content_text)]
                     )
-                    
+
                 except Exception as e:
                     # Use centralized error handling
                     error_context = {
                         "tool_name": name,
                         "arguments": arguments,
-                        "operation": "tool_execution"
+                        "operation": "tool_execution",
                     }
-                    
+
                     error_response = self.error_handler.handle_error(e, error_context)
-                    
+
                     # Log failed tool call
-                    self.audit_logger.log_tool_call(name, arguments, success=False, error=str(e))
-                    
+                    self.audit_logger.log_tool_call(
+                        name, arguments, success=False, error=str(e)
+                    )
+
                     return CallToolResult(
                         content=[TextContent(type="text", text=str(error_response))],
-                        isError=True
+                        isError=True,
                     )
-    
+
     async def start(self) -> None:
         """Start the MCP server."""
         if self._running:
             logger.warning("Server is already running")
             return
-        
+
         try:
             self._running = True
             self.setup_handlers()
-            
+
             logger.info("Starting MCP server with stdio transport")
-            
+
             # Run the server with stdio transport
             async with stdio_server() as (read_stream, write_stream):
                 await self.server.run(
                     read_stream,
                     write_stream,
-                    self.server.create_initialization_options()
+                    self.server.create_initialization_options(),
                 )
-                
+
         except Exception as e:
             self._running = False
             logger.error(f"Failed to start MCP server: {e}")
             raise
-    
+
     async def shutdown(self) -> None:
         """Perform graceful shutdown of the MCP server."""
         if not self._running:
             logger.info("Server is not running, nothing to shutdown")
             return
-        
+
         logger.info("Starting MCP server shutdown...")
-        
+
         try:
             # Close all open documents
             if self.word_controller:
                 logger.info("Closing Word documents...")
                 await self._close_all_documents()
-            
+
             # Disconnect from Word
             if self.word_controller:
                 logger.info("Disconnecting from Word...")
                 self.word_controller.disconnect()
                 self.word_controller = None
-            
+
             # Stop the server
             self._running = False
             self._shutdown_event.set()
-            
+
             logger.info("MCP server shutdown completed successfully")
-            
+
         except Exception as e:
             logger.error(f"Error during server shutdown: {e}")
             raise
-    
+
     async def _close_all_documents(self) -> None:
         """Close all open documents with optional saving."""
         if not self.word_controller:
             return
-        
+
         try:
             # Get all open documents
             documents = self.word_controller.get_open_documents()
-            
+
             for doc_id, doc_ref in documents.items():
                 try:
                     logger.debug(f"Closing document: {doc_ref.title}")
                     self.word_controller.close_document(doc_id, save=True)
                 except Exception as e:
                     logger.warning(f"Error closing document {doc_id}: {e}")
-                    
+
         except Exception as e:
             logger.error(f"Error during document cleanup: {e}")
-    
+
     def _ensure_word_controller(self) -> WordController:
         """Ensure Word controller is available and connected."""
         if self.word_controller is None:
             self.word_controller = WordController(self.config.word)
-            
+
         if not self.word_controller.connect_to_word():
             raise ConnectionError("Failed to connect to Word application")
-            
+
         return self.word_controller
-    
+
     # Tool handler methods would go here...
     # (These are placeholder methods - the actual implementations would be much longer)
-    
+
     async def _handle_create_document(self, **kwargs):
         """Handle create document tool call."""
         controller = self._ensure_word_controller()
         return controller.create_document()
-    
+
     async def _handle_open_document(self, path: str, **kwargs):
         """Handle open document tool call."""
         controller = self._ensure_word_controller()
         return controller.open_document(path)
-    
+
     async def _handle_save_document(self, doc_id: str, path: str = None, **kwargs):
         """Handle save document tool call."""
         controller = self._ensure_word_controller()
         return controller.save_document(doc_id, path)
-    
+
     async def _handle_close_document(self, doc_id: str, save: bool = True, **kwargs):
         """Handle close document tool call."""
         controller = self._ensure_word_controller()
         return controller.close_document(doc_id, save)
-    
-    async def _handle_insert_text(self, doc_id: str, text: str, position: int = None, **kwargs):
+
+    async def _handle_insert_text(
+        self, doc_id: str, text: str, position: int = None, **kwargs
+    ):
         """Handle insert text tool call."""
         controller = self._ensure_word_controller()
         return controller.insert_text(doc_id, text, position)
-    
+
     async def _handle_format_text(self, doc_id: str, start: int, end: int, **kwargs):
         """Handle format text tool call."""
         controller = self._ensure_word_controller()
         return controller.format_text(doc_id, start, end, **kwargs)
-    
+
     async def _handle_select_text(self, doc_id: str, start: int, end: int, **kwargs):
         """Handle select text tool call."""
         controller = self._ensure_word_controller()
         return controller.select_text(doc_id, start, end)
-    
+
     async def _handle_read_document(self, path: str, **kwargs):
         """Handle read document tool call."""
         return self.document_manager.read_document(path)
-    
+
     async def _handle_get_document_info(self, path: str, **kwargs):
         """Handle get document info tool call."""
         return self.document_manager.get_document_info(path)
-    
+
     async def _handle_get_document_statistics(self, path: str, **kwargs):
         """Handle get document statistics tool call."""
         return self.document_manager.get_document_statistics(path)
-    
+
     async def _handle_extract_comments(self, path: str, **kwargs):
         """Handle extract comments tool call."""
         return self.document_manager.extract_comments(path)
-    
-    async def _handle_create_table(self, doc_id: str, rows: int, cols: int, position: int = None, **kwargs):
+
+    async def _handle_create_table(
+        self, doc_id: str, rows: int, cols: int, position: int = None, **kwargs
+    ):
         """Handle create table tool call."""
         controller = self._ensure_word_controller()
         return controller.create_table(doc_id, rows, cols, position)
-    
-    async def _handle_format_table_cell(self, doc_id: str, table_index: int, row: int, col: int, **kwargs):
+
+    async def _handle_format_table_cell(
+        self, doc_id: str, table_index: int, row: int, col: int, **kwargs
+    ):
         """Handle format table cell tool call."""
         controller = self._ensure_word_controller()
         return controller.format_table_cell(doc_id, table_index, row, col, **kwargs)
-    
-    async def _handle_create_list(self, doc_id: str, items: List[str], list_type: str = "bulleted", position: int = None, **kwargs):
+
+    async def _handle_create_list(
+        self,
+        doc_id: str,
+        items: List[str],
+        list_type: str = "bulleted",
+        position: int = None,
+        **kwargs,
+    ):
         """Handle create list tool call."""
         controller = self._ensure_word_controller()
         return controller.create_list(doc_id, items, list_type, position)
-    
-    async def _handle_find_replace(self, doc_id: str, find_text: str, replace_text: str, **kwargs):
+
+    async def _handle_find_replace(
+        self, doc_id: str, find_text: str, replace_text: str, **kwargs
+    ):
         """Handle find replace tool call."""
         controller = self._ensure_word_controller()
         return controller.find_replace(doc_id, find_text, replace_text, **kwargs)
-    
-    async def _handle_insert_header_footer(self, doc_id: str, header_text: str = None, footer_text: str = None, section_index: int = 1, **kwargs):
+
+    async def _handle_insert_header_footer(
+        self,
+        doc_id: str,
+        header_text: str = None,
+        footer_text: str = None,
+        section_index: int = 1,
+        **kwargs,
+    ):
         """Handle insert header footer tool call."""
         controller = self._ensure_word_controller()
-        return controller.insert_header_footer(doc_id, header_text, footer_text, section_index)
-    
-    async def _handle_insert_page_break(self, doc_id: str, position: int = None, break_type: str = "page", **kwargs):
+        return controller.insert_header_footer(
+            doc_id, header_text, footer_text, section_index
+        )
+
+    async def _handle_insert_page_break(
+        self, doc_id: str, position: int = None, break_type: str = "page", **kwargs
+    ):
         """Handle insert page break tool call."""
         controller = self._ensure_word_controller()
         return controller.insert_page_break(doc_id, position, break_type)
-    
-    async def _handle_set_page_formatting(self, doc_id: str, section_index: int = 1, **kwargs):
+
+    async def _handle_set_page_formatting(
+        self, doc_id: str, section_index: int = 1, **kwargs
+    ):
         """Handle set page formatting tool call."""
         controller = self._ensure_word_controller()
         return controller.set_page_formatting(doc_id, section_index, **kwargs)
-    
-    async def start(self):
-        """Start the MCP server using stdio transport."""
-        self.setup_handlers()
-        self._running = True
-        logger.info("Starting Word MCP Server with stdio transport")
-        
-        try:
-            # Run the server using stdio transport
-            async with stdio_server() as (read_stream, write_stream):
-                await self.server.run(
-                    read_stream,
-                    write_stream,
-                    {}  # Empty initialization options
-                )
-        except Exception as e:
-            logger.error(f"Server error: {e}")
-            raise
-        finally:
-            self._running = False
-            await self.shutdown()
-    
-    async def shutdown(self):
-        """Shutdown the server and clean up resources."""
-        logger.info("Shutting down Word MCP Server")
-        self._shutdown_event.set()
-        
-        # Clean up Word controller
-        if self.word_controller:
-            try:
-                await self.word_controller.cleanup_all_documents()
-                self.word_controller.disconnect()
-            except Exception as e:
-                logger.warning(f"Error during Word controller cleanup: {e}")
-            finally:
-                self.word_controller = None
-        
-        logger.info("Word MCP Server shutdown complete")
