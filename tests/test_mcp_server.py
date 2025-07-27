@@ -52,7 +52,17 @@ class TestWordMCPServer:
             "insert_text",
             "format_text",
             "select_text",
-            "read_document"
+            "read_document",
+            "get_document_info",
+            "get_document_statistics",
+            "extract_comments",
+            "create_table",
+            "format_table_cell",
+            "create_list",
+            "find_replace",
+            "insert_header_footer",
+            "insert_page_break",
+            "set_page_formatting"
         ]
         
         for tool_name in expected_tools:
@@ -92,7 +102,17 @@ class TestWordMCPServer:
             "insert_text",
             "format_text",
             "select_text",
-            "read_document"
+            "read_document",
+            "get_document_info",
+            "get_document_statistics",
+            "extract_comments",
+            "create_table",
+            "format_table_cell",
+            "create_list",
+            "find_replace",
+            "insert_header_footer",
+            "insert_page_break",
+            "set_page_formatting"
         ]
         
         for expected_tool in expected_tools:
@@ -130,7 +150,7 @@ class TestWordMCPServer:
         assert "unknown_tool" not in mcp_server.tools
         
         # Test that we have the expected tools
-        assert len(mcp_server.tools) == 8  # 8 core tools
+        assert len(mcp_server.tools) == 18  # 18 core tools
     
     @pytest.mark.asyncio
     async def test_call_tool_handler_exception(self, mcp_server):
@@ -1075,10 +1095,10 @@ async def test_server_integration():
     # Verify server is properly initialized
     assert server.config_manager == config_manager
     assert server.server is not None
-    assert len(server.tools) == 8  # 8 core tools
+    assert len(server.tools) == 18  # 18 core tools
     
     # Test that all expected tools are registered
-    expected_tools = ["create_document", "open_document", "save_document", "close_document", "insert_text", "format_text", "select_text", "read_document"]
+    expected_tools = ["create_document", "open_document", "save_document", "close_document", "insert_text", "format_text", "select_text", "read_document", "get_document_info", "get_document_statistics", "extract_comments", "create_table", "format_table_cell", "create_list", "find_replace", "insert_header_footer", "insert_page_break", "set_page_formatting"]
     for tool_name in expected_tools:
         assert tool_name in server.tools
         tool_def = server.tools[tool_name]

@@ -76,6 +76,14 @@ class WordMCPServer:
         
         logger.info("WordMCPServer initialized with enhanced error handling")
     
+    def is_running(self) -> bool:
+        """Check if the server is running."""
+        return self._running
+    
+    async def wait_for_shutdown(self) -> None:
+        """Wait for the shutdown event to be set."""
+        await self._shutdown_event.wait()
+    
     def _setup_recovery_strategies(self):
         """Set up recovery strategies for different error types."""
         # Word connection recovery
@@ -780,60 +788,7 @@ class WordMCPServer:
                         isError=True
                     )
     
-    async def start(self) -> None:
-        """Start the MCP server."""
-        if self._running:
-            logger.warning("Server is already running")
-            return
-        
-        try:
-            self._running = True
-            self.setup_handlers()
-            
-            logger.info("Starting MCP server with stdio transport")
-            
-            # Run the server with stdio transport
-            async with stdio_server() as (read_stream, write_stream):
-                await self.server.run(
-                    read_stream,
-                    write_stream,
-                    self.server.create_initialization_options()
-                )
-                
-        except Exception as e:
-            self._running = False
-            logger.error(f"Failed to start MCP server: {e}")
-            raise
-    
-    async def shutdown(self) -> None:
-        """Perform graceful shutdown of the MCP server."""
-        if not self._running:
-            logger.info("Server is not running, nothing to shutdown")
-            return
-        
-        logger.info("Starting MCP server shutdown...")
-        
-        try:
-            # Close all open documents
-            if self.word_controller:
-                logger.info("Closing Word documents...")
-                await self._close_all_documents()
-            
-            # Disconnect from Word
-            if self.word_controller:
-                logger.info("Disconnecting from Word...")
-                self.word_controller.disconnect()
-                self.word_controller = None
-            
-            # Stop the server
-            self._running = False
-            self._shutdown_event.set()
-            
-            logger.info("MCP server shutdown completed successfully")
-            
-        except Exception as e:
-            logger.error(f"Error during server shutdown: {e}")
-            raise
+
     
     async def _close_all_documents(self) -> None:
         """Close all open documents with optional saving."""
@@ -872,84 +827,160 @@ class WordMCPServer:
         controller = self._ensure_word_controller()
         return controller.create_document()
     
-    async def _handle_open_document(self, path: str, **kwargs):
+    async def _handle_open_document(self, **kwargs):
         """Handle open document tool call."""
+        path = kwargs.get('path')
+        if not path:
+            raise ValueError("path parameter is required")
         controller = self._ensure_word_controller()
         return controller.open_document(path)
     
-    async def _handle_save_document(self, doc_id: str, path: str = None, **kwargs):
+    async def _handle_save_document(self, **kwargs):
         """Handle save document tool call."""
+        doc_id = kwargs.get('doc_id')
+        path = kwargs.get('path')
+        if not doc_id:
+            raise ValueError("doc_id parameter is required")
         controller = self._ensure_word_controller()
         return controller.save_document(doc_id, path)
     
-    async def _handle_close_document(self, doc_id: str, save: bool = True, **kwargs):
+    async def _handle_close_document(self, **kwargs):
         """Handle close document tool call."""
+        doc_id = kwargs.get('doc_id')
+        save = kwargs.get('save', True)
+        if not doc_id:
+            raise ValueError("doc_id parameter is required")
         controller = self._ensure_word_controller()
         return controller.close_document(doc_id, save)
     
-    async def _handle_insert_text(self, doc_id: str, text: str, position: int = None, **kwargs):
+    async def _handle_insert_text(self, **kwargs):
         """Handle insert text tool call."""
+        doc_id = kwargs.get('doc_id')
+        text = kwargs.get('text')
+        position = kwargs.get('position')
+        if not doc_id or not text:
+            raise ValueError("doc_id and text parameters are required")
         controller = self._ensure_word_controller()
         return controller.insert_text(doc_id, text, position)
     
-    async def _handle_format_text(self, doc_id: str, start: int, end: int, **kwargs):
+    async def _handle_format_text(self, **kwargs):
         """Handle format text tool call."""
+        doc_id = kwargs.get('doc_id')
+        start = kwargs.get('start')
+        end = kwargs.get('end')
+        if not doc_id or start is None or end is None:
+            raise ValueError("doc_id, start, and end parameters are required")
         controller = self._ensure_word_controller()
         return controller.format_text(doc_id, start, end, **kwargs)
     
-    async def _handle_select_text(self, doc_id: str, start: int, end: int, **kwargs):
+    async def _handle_select_text(self, **kwargs):
         """Handle select text tool call."""
+        doc_id = kwargs.get('doc_id')
+        start = kwargs.get('start')
+        end = kwargs.get('end')
+        if not doc_id or start is None or end is None:
+            raise ValueError("doc_id, start, and end parameters are required")
         controller = self._ensure_word_controller()
         return controller.select_text(doc_id, start, end)
     
-    async def _handle_read_document(self, path: str, **kwargs):
+    async def _handle_read_document(self, **kwargs):
         """Handle read document tool call."""
+        path = kwargs.get('path')
+        if not path:
+            raise ValueError("path parameter is required")
         return self.document_manager.read_document(path)
     
-    async def _handle_get_document_info(self, path: str, **kwargs):
+    async def _handle_get_document_info(self, **kwargs):
         """Handle get document info tool call."""
+        path = kwargs.get('path')
+        if not path:
+            raise ValueError("path parameter is required")
         return self.document_manager.get_document_info(path)
     
-    async def _handle_get_document_statistics(self, path: str, **kwargs):
+    async def _handle_get_document_statistics(self, **kwargs):
         """Handle get document statistics tool call."""
+        path = kwargs.get('path')
+        if not path:
+            raise ValueError("path parameter is required")
         return self.document_manager.get_document_statistics(path)
     
-    async def _handle_extract_comments(self, path: str, **kwargs):
+    async def _handle_extract_comments(self, **kwargs):
         """Handle extract comments tool call."""
+        path = kwargs.get('path')
+        if not path:
+            raise ValueError("path parameter is required")
         return self.document_manager.extract_comments(path)
     
-    async def _handle_create_table(self, doc_id: str, rows: int, cols: int, position: int = None, **kwargs):
+    async def _handle_create_table(self, **kwargs):
         """Handle create table tool call."""
+        doc_id = kwargs.get('doc_id')
+        rows = kwargs.get('rows')
+        cols = kwargs.get('cols')
+        position = kwargs.get('position')
+        if not doc_id or rows is None or cols is None:
+            raise ValueError("doc_id, rows, and cols parameters are required")
         controller = self._ensure_word_controller()
         return controller.create_table(doc_id, rows, cols, position)
     
-    async def _handle_format_table_cell(self, doc_id: str, table_index: int, row: int, col: int, **kwargs):
+    async def _handle_format_table_cell(self, **kwargs):
         """Handle format table cell tool call."""
+        doc_id = kwargs.get('doc_id')
+        table_index = kwargs.get('table_index')
+        row = kwargs.get('row')
+        col = kwargs.get('col')
+        if not doc_id or table_index is None or row is None or col is None:
+            raise ValueError("doc_id, table_index, row, and col parameters are required")
         controller = self._ensure_word_controller()
         return controller.format_table_cell(doc_id, table_index, row, col, **kwargs)
     
-    async def _handle_create_list(self, doc_id: str, items: List[str], list_type: str = "bulleted", position: int = None, **kwargs):
+    async def _handle_create_list(self, **kwargs):
         """Handle create list tool call."""
+        doc_id = kwargs.get('doc_id')
+        items = kwargs.get('items')
+        list_type = kwargs.get('list_type', 'bulleted')
+        position = kwargs.get('position')
+        if not doc_id or not items:
+            raise ValueError("doc_id and items parameters are required")
         controller = self._ensure_word_controller()
         return controller.create_list(doc_id, items, list_type, position)
     
-    async def _handle_find_replace(self, doc_id: str, find_text: str, replace_text: str, **kwargs):
+    async def _handle_find_replace(self, **kwargs):
         """Handle find replace tool call."""
+        doc_id = kwargs.get('doc_id')
+        find_text = kwargs.get('find_text')
+        replace_text = kwargs.get('replace_text')
+        if not doc_id or not find_text or not replace_text:
+            raise ValueError("doc_id, find_text, and replace_text parameters are required")
         controller = self._ensure_word_controller()
         return controller.find_replace(doc_id, find_text, replace_text, **kwargs)
     
-    async def _handle_insert_header_footer(self, doc_id: str, header_text: str = None, footer_text: str = None, section_index: int = 1, **kwargs):
+    async def _handle_insert_header_footer(self, **kwargs):
         """Handle insert header footer tool call."""
+        doc_id = kwargs.get('doc_id')
+        header_text = kwargs.get('header_text')
+        footer_text = kwargs.get('footer_text')
+        section_index = kwargs.get('section_index', 1)
+        if not doc_id:
+            raise ValueError("doc_id parameter is required")
         controller = self._ensure_word_controller()
         return controller.insert_header_footer(doc_id, header_text, footer_text, section_index)
     
-    async def _handle_insert_page_break(self, doc_id: str, position: int = None, break_type: str = "page", **kwargs):
+    async def _handle_insert_page_break(self, **kwargs):
         """Handle insert page break tool call."""
+        doc_id = kwargs.get('doc_id')
+        position = kwargs.get('position')
+        break_type = kwargs.get('break_type', 'page')
+        if not doc_id:
+            raise ValueError("doc_id parameter is required")
         controller = self._ensure_word_controller()
         return controller.insert_page_break(doc_id, position, break_type)
     
-    async def _handle_set_page_formatting(self, doc_id: str, section_index: int = 1, **kwargs):
+    async def _handle_set_page_formatting(self, **kwargs):
         """Handle set page formatting tool call."""
+        doc_id = kwargs.get('doc_id')
+        section_index = kwargs.get('section_index', 1)
+        if not doc_id:
+            raise ValueError("doc_id parameter is required")
         controller = self._ensure_word_controller()
         return controller.set_page_formatting(doc_id, section_index, **kwargs)
     
@@ -960,12 +991,15 @@ class WordMCPServer:
         logger.info("Starting Word MCP Server with stdio transport")
         
         try:
+            # Create initialization options
+            init_options = self.server.create_initialization_options()
+            
             # Run the server using stdio transport
             async with stdio_server() as (read_stream, write_stream):
                 await self.server.run(
                     read_stream,
                     write_stream,
-                    {}  # Empty initialization options
+                    init_options
                 )
         except Exception as e:
             logger.error(f"Server error: {e}")
