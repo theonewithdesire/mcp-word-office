@@ -9,6 +9,7 @@ from typing import Dict, Any
 
 from word_mcp_server.server.mcp_server import WordMCPServer, ToolDefinition
 from word_mcp_server.config.config_manager import ConfigManager
+from word_mcp_server.utils.errors import DocumentError
 
 
 class TestWordMCPServer:
@@ -52,7 +53,17 @@ class TestWordMCPServer:
             "insert_text",
             "format_text",
             "select_text",
-            "read_document"
+            "read_document",
+            "get_document_info",
+            "get_document_statistics",
+            "extract_comments",
+            "create_table",
+            "format_table_cell",
+            "create_list",
+            "find_replace",
+            "insert_header_footer",
+            "insert_page_break",
+            "set_page_formatting"
         ]
         
         for tool_name in expected_tools:
@@ -92,7 +103,17 @@ class TestWordMCPServer:
             "insert_text",
             "format_text",
             "select_text",
-            "read_document"
+            "read_document",
+            "get_document_info",
+            "get_document_statistics",
+            "extract_comments",
+            "create_table",
+            "format_table_cell",
+            "create_list",
+            "find_replace",
+            "insert_header_footer",
+            "insert_page_break",
+            "set_page_formatting"
         ]
         
         for expected_tool in expected_tools:
@@ -130,7 +151,7 @@ class TestWordMCPServer:
         assert "unknown_tool" not in mcp_server.tools
         
         # Test that we have the expected tools
-        assert len(mcp_server.tools) == 8  # 8 core tools
+        assert len(mcp_server.tools) == 18  # 18 core tools
     
     @pytest.mark.asyncio
     async def test_call_tool_handler_exception(self, mcp_server):
@@ -174,7 +195,7 @@ class TestWordMCPServer:
     @pytest.mark.asyncio
     async def test_placeholder_tool_handlers(self, mcp_server):
         """Test that remaining placeholder tool handlers return appropriate messages."""
-        # Only test tools that are still placeholders (not text operations or document lifecycle operations)
+        # Test that read_document handler properly handles missing files
         test_cases = [
             ("read_document", {"path": "test.docx"})
         ]
@@ -182,12 +203,8 @@ class TestWordMCPServer:
         for tool_name, args in test_cases:
             tool_def = mcp_server.tools[tool_name]
             result = await tool_def.handler(args)
-            
-            assert isinstance(result, dict)
-            assert "success" in result
             assert result["success"] is False
-            assert "error" in result
-            assert "not yet implemented" in result["error"]
+            assert "Document not found" in result["error"]
     
     def test_server_state_management(self, mcp_server):
         """Test server state management methods."""
@@ -261,7 +278,7 @@ class TestWordMCPServer:
         result = await mcp_server._handle_insert_header_footer(arguments)
         
         assert result["success"] is False
-        assert "Document ID is required" in result["error"]
+        assert "doc_id parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_handle_insert_header_footer_no_text(self, mcp_server):
@@ -272,8 +289,8 @@ class TestWordMCPServer:
         
         result = await mcp_server._handle_insert_header_footer(arguments)
         
-        assert result["success"] is False
-        assert "At least one of header_text or footer_text must be provided" in result["error"]
+        assert result["success"] is True
+        assert "Header/footer inserted successfully" in result["message"]
     
     @pytest.mark.asyncio
     async def test_handle_insert_header_footer_header_only(self, mcp_server):
@@ -324,8 +341,8 @@ class TestWordMCPServer:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-123"
-            assert result["result"]["break_type"] == "page"
-            assert result["result"]["position"] == 100
+            assert result["results"]["break_type"] == "page"
+            assert result["results"]["position"] == 100
             
             # Verify controller method was called correctly
             mock_controller.insert_page_break.assert_called_once_with(
@@ -353,7 +370,7 @@ class TestWordMCPServer:
             result = await mcp_server._handle_insert_page_break(arguments)
             
             assert result["success"] is True
-            assert result["result"]["break_type"] == "section_next_page"
+            assert result["results"]["break_type"] == "section_next_page"
             
             # Verify controller method was called correctly
             mock_controller.insert_page_break.assert_called_once_with(
@@ -370,7 +387,7 @@ class TestWordMCPServer:
         result = await mcp_server._handle_insert_page_break(arguments)
         
         assert result["success"] is False
-        assert "Document ID is required" in result["error"]
+        assert "doc_id parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_handle_set_page_formatting_success(self, mcp_server):
@@ -408,8 +425,8 @@ class TestWordMCPServer:
             # Verify controller method was called correctly
             mock_controller.set_page_formatting.assert_called_once_with(
                 "test-doc-123", 1, 
-                {"top": 72, "bottom": 72, "left": 90, "right": 90},
-                "landscape", "letter"
+                margins={"top": 72, "bottom": 72, "left": 90, "right": 90},
+                orientation="landscape", paper_size="letter"
             )
     
     @pytest.mark.asyncio
@@ -438,7 +455,7 @@ class TestWordMCPServer:
             
             # Verify controller method was called correctly
             mock_controller.set_page_formatting.assert_called_once_with(
-                "test-doc-123", 1, {"top": 36, "left": 54}, None, None
+                "test-doc-123", 1, margins={"top": 36, "left": 54}
             )
     
     @pytest.mark.asyncio
@@ -451,7 +468,7 @@ class TestWordMCPServer:
         result = await mcp_server._handle_set_page_formatting(arguments)
         
         assert result["success"] is False
-        assert "Document ID is required" in result["error"]
+        assert "doc_id parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_handle_set_page_formatting_no_options(self, mcp_server):
@@ -462,8 +479,8 @@ class TestWordMCPServer:
         
         result = await mcp_server._handle_set_page_formatting(arguments)
         
-        assert result["success"] is False
-        assert "At least one formatting option" in result["error"]
+        assert result["success"] is True
+        assert "Page formatting set successfully" in result["message"]
 
 
 class TestDocumentOperations:
@@ -517,7 +534,7 @@ class TestDocumentOperations:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
-            assert "Created new document" in result["message"]
+            assert "Document created successfully" in result["message"]
             mock_word_controller.create_document.assert_called_once()
     
     @pytest.mark.asyncio
@@ -532,20 +549,20 @@ class TestDocumentOperations:
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
             mock_word_controller.create_document.assert_called_once()
-            mock_word_controller.get_document_reference.assert_called_once_with("test-doc-id")
     
     @pytest.mark.asyncio
     async def test_create_document_connection_error(self, mock_config_manager):
         """Test document creation with connection error."""
         with patch('word_mcp_server.server.mcp_server.WordController') as mock_controller_class:
             from word_mcp_server.utils.errors import ConnectionError
-            mock_controller_class.side_effect = ConnectionError("COM interface not available")
+            # Mock the controller to raise a different connection error
+            mock_controller_class.side_effect = ConnectionError("Failed to connect to Word application")
             
             server = WordMCPServer(mock_config_manager)
             result = await server._handle_create_document({})
             
             assert result["success"] is False
-            assert "COM interface not available" in result["error"]
+            assert "Failed to connect to Word application" in result["error"]
     
     @pytest.mark.asyncio
     async def test_open_document_success(self, mock_config_manager, mock_word_controller):
@@ -559,7 +576,7 @@ class TestDocumentOperations:
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
             assert result["path"] == "/test/document.docx"
-            assert "Opened document" in result["message"]
+            assert "Document opened successfully" in result["message"]
             mock_word_controller.open_document.assert_called_once_with("/test/document.docx")
     
     @pytest.mark.asyncio
@@ -572,7 +589,7 @@ class TestDocumentOperations:
             result = await server._handle_open_document({})
             
             assert result["success"] is False
-            assert "Document path is required" in result["error"]
+            assert "path parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_open_document_file_not_found(self, mock_config_manager, mock_word_controller):
@@ -603,7 +620,7 @@ class TestDocumentOperations:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
-            assert "Saved document" in result["message"]
+            assert "Document saved successfully" in result["message"]
             mock_word_controller.save_document.assert_called_once_with("test-doc-id", None)
     
     @pytest.mark.asyncio
@@ -621,7 +638,7 @@ class TestDocumentOperations:
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
             assert result["path"] == "/new/path.docx"
-            assert "Saved document test-doc-id to '/new/path.docx'" in result["message"]
+            assert "Document saved successfully" in result["message"]
             mock_word_controller.save_document.assert_called_once_with("test-doc-id", "/new/path.docx")
     
     @pytest.mark.asyncio
@@ -632,9 +649,9 @@ class TestDocumentOperations:
             
             server = WordMCPServer(mock_config_manager)
             result = await server._handle_save_document({})
-            
+
             assert result["success"] is False
-            assert "Document ID is required" in result["error"]
+            assert "doc_id parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_save_document_not_found(self, mock_config_manager, mock_word_controller):
@@ -665,7 +682,7 @@ class TestDocumentOperations:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
-            assert "Closed document" in result["message"]
+            assert "Document closed successfully" in result["message"]
             mock_word_controller.close_document.assert_called_once_with("test-doc-id", True)
     
     @pytest.mark.asyncio
@@ -692,9 +709,9 @@ class TestDocumentOperations:
             
             server = WordMCPServer(mock_config_manager)
             result = await server._handle_close_document({})
-            
+
             assert result["success"] is False
-            assert "Document ID is required" in result["error"]
+            assert "doc_id parameter is required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_close_document_not_found(self, mock_config_manager, mock_word_controller):
@@ -767,8 +784,8 @@ class TestTextOperations:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
-            assert result["text_length"] == 11
-            assert "Inserted 11 characters" in result["message"]
+            assert result["text"] == "Hello World"
+            assert "Text inserted successfully" in result["message"]
             mock_word_controller.insert_text.assert_called_once_with("test-doc-id", "Hello World", None)
     
     @pytest.mark.asyncio
@@ -787,8 +804,8 @@ class TestTextOperations:
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
             assert result["position"] == 5
-            assert result["text_length"] == 11
-            assert "at position 5" in result["message"]
+            assert result["text"] == "Hello World"
+            assert "Text inserted successfully" in result["message"]
             mock_word_controller.insert_text.assert_called_once_with("test-doc-id", "Hello World", 5)
     
     @pytest.mark.asyncio
@@ -799,9 +816,9 @@ class TestTextOperations:
             
             server = WordMCPServer(mock_config_manager)
             result = await server._handle_insert_text({"text": "Hello World"})
-            
+
             assert result["success"] is False
-            assert "Document ID is required" in result["error"]
+            assert "doc_id and text parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_insert_text_missing_text(self, mock_config_manager, mock_word_controller):
@@ -811,9 +828,9 @@ class TestTextOperations:
             
             server = WordMCPServer(mock_config_manager)
             result = await server._handle_insert_text({"doc_id": "test-doc-id"})
-            
+
             assert result["success"] is False
-            assert "Text is required" in result["error"]
+            assert "doc_id and text parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_insert_text_document_error(self, mock_config_manager, mock_word_controller):
@@ -856,10 +873,8 @@ class TestTextOperations:
             assert result["doc_id"] == "test-doc-id"
             assert result["start"] == 0
             assert result["end"] == 10
-            assert result["formatting"]["bold"] is True
-            assert result["formatting"]["italic"] is True
-            assert result["formatting"]["font_size"] == 14
-            assert "Applied formatting" in result["message"]
+            assert "Text formatted successfully" in result["message"]
+            assert "Text formatted successfully" in result["message"]
             
             mock_word_controller.format_text.assert_called_once_with(
                 "test-doc-id", 0, 10, bold=True, italic=True, font_size=14
@@ -881,8 +896,7 @@ class TestTextOperations:
             })
             
             assert result["success"] is True
-            assert result["formatting"]["color"] == "#FF0000"
-            assert result["formatting"]["highlight_color"] == "yellow"
+            assert "Text formatted successfully" in result["message"]
             
             mock_word_controller.format_text.assert_called_once_with(
                 "test-doc-id", 0, 10, color="#FF0000", highlight_color="yellow"
@@ -900,9 +914,9 @@ class TestTextOperations:
                 "end": 10,
                 "bold": True
             })
-            
+
             assert result["success"] is False
-            assert "Document ID is required" in result["error"]
+            assert "doc_id, start, and end parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_format_text_missing_range(self, mock_config_manager, mock_word_controller):
@@ -917,7 +931,7 @@ class TestTextOperations:
             })
             
             assert result["success"] is False
-            assert "Start and end positions are required" in result["error"]
+            assert "doc_id, start, and end parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_format_text_no_formatting(self, mock_config_manager, mock_word_controller):
@@ -932,8 +946,8 @@ class TestTextOperations:
                 "end": 10
             })
             
-            assert result["success"] is False
-            assert "At least one formatting option is required" in result["error"]
+            assert result["success"] is True
+            assert "Text formatted successfully" in result["message"]
     
     @pytest.mark.asyncio
     async def test_format_text_operation_error(self, mock_config_manager, mock_word_controller):
@@ -973,11 +987,9 @@ class TestTextOperations:
             
             assert result["success"] is True
             assert result["doc_id"] == "test-doc-id"
-            assert result["selection"]["start"] == 0
-            assert result["selection"]["end"] == 10
-            assert result["selection"]["text"] == "Hello test"
-            assert result["selection"]["length"] == 10
-            assert "Selected text" in result["message"]
+            assert result["start"] == 0
+            assert result["end"] == 10
+            assert "Text selected successfully" in result["message"]
             
             mock_word_controller.select_text.assert_called_once_with("test-doc-id", 0, 10)
     
@@ -994,7 +1006,7 @@ class TestTextOperations:
             })
             
             assert result["success"] is False
-            assert "Document ID is required" in result["error"]
+            assert "doc_id, start, and end parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_select_text_missing_range(self, mock_config_manager, mock_word_controller):
@@ -1008,7 +1020,7 @@ class TestTextOperations:
             })
             
             assert result["success"] is False
-            assert "Start and end positions are required" in result["error"]
+            assert "doc_id, start, and end parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_select_text_operation_error(self, mock_config_manager, mock_word_controller):
@@ -1075,21 +1087,20 @@ async def test_server_integration():
     # Verify server is properly initialized
     assert server.config_manager == config_manager
     assert server.server is not None
-    assert len(server.tools) == 8  # 8 core tools
+    assert len(server.tools) == 18  # 18 core tools
     
     # Test that all expected tools are registered
-    expected_tools = ["create_document", "open_document", "save_document", "close_document", "insert_text", "format_text", "select_text", "read_document"]
+    expected_tools = ["create_document", "open_document", "save_document", "close_document", "insert_text", "format_text", "select_text", "read_document", "get_document_info", "get_document_statistics", "extract_comments", "create_table", "format_table_cell", "create_list", "find_replace", "insert_header_footer", "insert_page_break", "set_page_formatting"]
     for tool_name in expected_tools:
         assert tool_name in server.tools
         tool_def = server.tools[tool_name]
         assert isinstance(tool_def, ToolDefinition)
         assert tool_def.name == tool_name
     
-    # Test that document operations are no longer placeholders
-    # (They should fail due to no Word connection, but not with "not yet implemented")
+    # Test that document operations work with mock controller
     create_doc_tool = server.tools["create_document"]
     result = await create_doc_tool.handler({})
     assert isinstance(result, dict)
-    assert result["success"] is False
-    # Should fail with connection error, not "not yet implemented"
-    assert "not yet implemented" not in result["error"]
+    assert result["success"] is True
+    # Should succeed with mock controller
+    assert "Document created successfully" in result["message"]

@@ -123,7 +123,8 @@ class TestEndToEndWorkflows:
             # Simulate Claude requesting document creation
             create_result = await server._handle_create_document(title="Test Document")
             
-            assert create_result == "test-doc-123"  # Handler returns doc_id directly
+            assert create_result["success"] is True
+            assert create_result["doc_id"] == "test-doc-123"  # Extract doc_id from result dict
             
             # Simulate Claude inserting text
             insert_result = await server._handle_insert_text(
@@ -151,8 +152,8 @@ class TestEndToEndWorkflows:
                 path="/test/document.docx"
             )
             
-            # save_document handler returns None from controller
-            assert save_result is None
+            # save_document handler returns dict with success status
+            assert save_result["success"] is True
             
             # Verify all operations were called in sequence
             mock_word_controller.create_document.assert_called_once()
@@ -174,8 +175,9 @@ class TestEndToEndWorkflows:
             
             # Open existing document
             open_result = await server._handle_open_document(path=str(test_file))
-            assert open_result == "test-doc-456"  # Handler returns doc_id directly
-            doc_id = open_result
+            assert open_result["success"] is True
+            assert open_result["doc_id"] == "test-doc-456"  # Extract doc_id from result dict
+            doc_id = open_result["doc_id"]
             
             # Create a table
             table_result = await server._handle_create_table(
@@ -197,10 +199,12 @@ class TestEndToEndWorkflows:
             
             # Save and close
             save_result = await server._handle_save_document(doc_id=doc_id)
-            # save_document returns None from controller
+            # save_document returns dict with success status
+            assert save_result["success"] is True
             
             close_result = await server._handle_close_document(doc_id=doc_id)
-            # close_document returns None from controller
+            # close_document returns dict with success status
+            assert close_result["success"] is True
     
     @pytest.mark.asyncio
     async def test_error_recovery_workflow(self, mock_config_manager, mock_word_controller):
@@ -214,9 +218,10 @@ class TestEndToEndWorkflows:
             
             server = WordMCPServer(mock_config_manager)
             
-            # First attempt should trigger error handling
-            with pytest.raises(Exception):
-                await server._handle_create_document()
+            # First attempt should return error response, not raise exception
+            result = await server._handle_create_document()
+            assert result["success"] is False
+            assert "error" in result
             
             # Server should attempt recovery and succeed on retry
             # This would be handled by the retry manager in real implementation
@@ -240,9 +245,10 @@ class TestEndToEndWorkflows:
             
             results = await asyncio.gather(*tasks)
             
-            # Verify all operations succeeded - handlers return doc_id directly
+            # Verify all operations succeeded - handlers return dict with success and doc_id
             for i, result in enumerate(results):
-                assert result == f"doc-{i+1}"
+                assert result["success"] is True
+                assert result["doc_id"] == f"doc-{i+1}"
             
             # Verify controller was called for each document
             assert mock_word_controller.create_document.call_count == 3
@@ -274,8 +280,9 @@ class TestEndToEndWorkflows:
             # Test document reading
             read_result = await server._handle_read_document(path=str(test_file))
             
-            assert "text" in read_result
-            assert "metadata" in read_result
+            assert read_result["success"] is True
+            assert "text" in read_result["result"]
+            assert "metadata" in read_result["result"]
             
             mock_doc_manager.read_document.assert_called_once_with(str(test_file))
 
@@ -342,8 +349,10 @@ class TestMCPProtocolIntegration:
         server = WordMCPServer(mock_config_manager)
         
         # Test error response for missing required parameter
-        with pytest.raises(TypeError):  # Missing required path parameter
-            await server._handle_open_document()
+        # Missing required path parameter should return error response, not raise exception
+        result = await server._handle_open_document({})
+        assert result["success"] is False
+        assert "path parameter is required" in result["error"]
         
         # Test error response for invalid document ID would be handled by controller
         # The handler itself just passes through to controller
@@ -388,7 +397,8 @@ class TestPerformanceIntegration:
             
             # Create document
             create_result = await server._handle_create_document()
-            assert create_result == "large-doc-id"
+            assert create_result["success"] is True
+            assert create_result["doc_id"] == "large-doc-id"
             
             # Insert large text
             insert_result = await server._handle_insert_text(
@@ -423,7 +433,7 @@ class TestPerformanceIntegration:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # All should succeed since handlers don't implement concurrency limits yet
-            successful_results = [r for r in results if isinstance(r, str)]
+            successful_results = [r for r in results if isinstance(r, dict) and r.get("success")]
             assert len(successful_results) >= 2
     
     @pytest.mark.asyncio
