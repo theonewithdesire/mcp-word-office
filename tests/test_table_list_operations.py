@@ -434,8 +434,9 @@ class TestMCPServerTableListIntegration:
         # Verify result
         assert result["success"] is True
         assert result["doc_id"] == "test-doc"
-        assert "table_info" in result
-        assert "Created 3x4 table" in result["message"]
+        assert result["rows"] == 3
+        assert result["cols"] == 4
+        assert "Table created successfully" in result["message"]
         
         # Verify controller was called
         mock_controller.create_table.assert_called_once_with("test-doc", 3, 4, None)
@@ -451,7 +452,7 @@ class TestMCPServerTableListIntegration:
             "cols": 4
         })
         assert result["success"] is False
-        assert "Document ID is required" in result["error"]
+        assert "doc_id, rows, and cols parameters are required" in result["error"]
         
         # Test missing rows
         result = await server._handle_create_table({
@@ -459,7 +460,7 @@ class TestMCPServerTableListIntegration:
             "cols": 4
         })
         assert result["success"] is False
-        assert "Rows and columns are required" in result["error"]
+        assert "doc_id, rows, and cols parameters are required" in result["error"]
     
     @pytest.mark.asyncio
     async def test_handle_format_table_cell_success(self, mock_mcp_server):
@@ -514,8 +515,9 @@ class TestMCPServerTableListIntegration:
         # Verify result
         assert result["success"] is True
         assert result["doc_id"] == "test-doc"
-        assert "list_info" in result
-        assert "Created bulleted list with 3 items" in result["message"]
+        assert result["items"] == items
+        assert result["list_type"] == "bulleted"
+        assert "List created successfully" in result["message"]
         
         # Verify controller was called
         mock_controller.create_list.assert_called_once_with(
@@ -532,7 +534,7 @@ class TestMCPServerTableListIntegration:
         })
         
         assert result["success"] is False
-        assert "List items are required" in result["error"]
+        assert "doc_id and items parameters are required" in result["error"]
 
 
 class TestFindReplaceOperations:
@@ -730,11 +732,11 @@ class TestMCPServerFindReplaceIntegration:
         assert result["success"] is True
         assert result["doc_id"] == "test-doc"
         assert "result" in result
-        assert "3 replacements made" in result["message"]
+        assert "Find and replace completed successfully" in result["message"]
         
         # Verify controller was called
         mock_controller.find_replace.assert_called_once_with(
-            "test-doc", "old", "new", False, False, False, True
+            "test-doc", "old", "new"
         )
     
     @pytest.mark.asyncio
@@ -768,7 +770,7 @@ class TestMCPServerFindReplaceIntegration:
         
         # Verify controller was called with correct options
         mock_controller.find_replace.assert_called_once_with(
-            "test-doc", "Old", "New", True, True, False, False
+            "test-doc", "Old", "New", match_case=True, match_whole_word=True, replace_all=False
         )
     
     @pytest.mark.asyncio
@@ -782,7 +784,7 @@ class TestMCPServerFindReplaceIntegration:
             "replace_text": "new"
         })
         assert result["success"] is False
-        assert "Document ID is required" in result["error"]
+        assert "doc_id, find_text, and replace_text parameters are required" in result["error"]
         
         # Test missing find_text
         result = await server._handle_find_replace({
@@ -790,7 +792,7 @@ class TestMCPServerFindReplaceIntegration:
             "replace_text": "new"
         })
         assert result["success"] is False
-        assert "Find text is required" in result["error"]
+        assert "doc_id, find_text, and replace_text parameters are required" in result["error"]
         
         # Test missing replace_text
         result = await server._handle_find_replace({
@@ -798,4 +800,4 @@ class TestMCPServerFindReplaceIntegration:
             "find_text": "old"
         })
         assert result["success"] is False
-        assert "Replace text is required" in result["error"]
+        assert "doc_id, find_text, and replace_text parameters are required" in result["error"]

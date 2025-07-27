@@ -104,8 +104,9 @@ class TestPerformanceIntegration:
             
             # Create document
             create_result = await server._handle_create_document(title="Large Document")
-            assert isinstance(create_result, str)  # Handler returns doc_id directly
-            doc_id = create_result
+            assert isinstance(create_result, dict)  # Handler returns dict with success and doc_id
+            assert create_result["success"] is True
+            doc_id = create_result["doc_id"]
             
             # Test with different document sizes
             test_sizes = [1, 10, 50, 100]  # KB
@@ -154,7 +155,8 @@ class TestPerformanceIntegration:
                 
                 # Add content to all documents concurrently
                 content_tasks = []
-                for i, doc_id in enumerate(create_results):
+                for i, result in enumerate(create_results):
+                    doc_id = result["doc_id"]  # Extract doc_id from result dict
                     content_tasks.append(
                         server._handle_insert_text(
                             doc_id=doc_id,
@@ -169,7 +171,7 @@ class TestPerformanceIntegration:
                 total_time = end_time - start_time
                 
                 # Verify all operations succeeded
-                assert all(isinstance(r, str) for r in create_results)  # Handler returns doc_id strings
+                assert all(isinstance(r, dict) and r["success"] for r in create_results)  # Handler returns dict with success
                 assert all(r["success"] for r in content_results)
                 
                 # Performance assertion: concurrent operations should be faster than sequential
@@ -196,13 +198,14 @@ class TestPerformanceIntegration:
             for i in range(num_docs):
                 # Create document
                 create_result = await server._handle_create_document(title=f"Memory Test Doc {i}")
-                assert isinstance(create_result, str)  # Handler returns doc_id directly
-                doc_ids.append(create_result)
+                assert isinstance(create_result, dict)  # Handler returns dict with success and doc_id
+                assert create_result["success"] is True
+                doc_ids.append(create_result["doc_id"])
                 
                 # Add substantial content
                 large_text = PerformanceTestData.generate_large_text(10)  # 10KB per doc
                 insert_result = await server._handle_insert_text(
-                    doc_id=create_result,
+                    doc_id=create_result["doc_id"],
                     text=large_text,
                     position=0
                 )
@@ -226,7 +229,8 @@ class TestPerformanceIntegration:
             
             # Create a document for testing
             create_result = await server._handle_create_document(title="Throughput Test")
-            doc_id = create_result  # Handler returns doc_id directly
+            assert create_result["success"] is True
+            doc_id = create_result["doc_id"]  # Extract doc_id from result dict
             
             # Test sustained text insertion operations
             num_operations = 50
@@ -281,10 +285,10 @@ class TestPerformanceIntegration:
                     create_result = await server._handle_create_document(
                         title=f"Stress Test Doc {doc_index}"
                     )
-                    if not isinstance(create_result, str):
+                    if not isinstance(create_result, dict) or not create_result.get("success"):
                         return {"success": False, "error": "Failed to create document"}
                     
-                    doc_id = create_result  # Handler returns doc_id directly
+                    doc_id = create_result["doc_id"]  # Extract doc_id from result dict
                     
                     # Perform multiple operations
                     for op_index in range(operations_per_doc):
@@ -361,12 +365,13 @@ class TestPerformanceIntegration:
             
             for i in range(num_docs):
                 create_result = await server._handle_create_document(title=f"Cleanup Test Doc {i}")
-                assert isinstance(create_result, str)  # Handler returns doc_id directly
-                doc_ids.append(create_result)
+                assert isinstance(create_result, dict)  # Handler returns dict with success and doc_id
+                assert create_result["success"] is True
+                doc_ids.append(create_result["doc_id"])
                 
                 # Add some content
                 insert_result = await server._handle_insert_text(
-                    doc_id=create_result,
+                    doc_id=create_result["doc_id"],
                     text=f"Content for document {i} " * 100,
                     position=0
                 )
@@ -386,8 +391,8 @@ class TestPerformanceIntegration:
             end_time = time.time()
             cleanup_time = end_time - start_time
             
-            # Verify cleanup succeeded - close_document returns None from controller
-            successful_closes = len([r for r in close_results if r is None])
+            # Verify cleanup succeeded - close_document returns dict with success status
+            successful_closes = len([r for r in close_results if isinstance(r, dict) and r.get("success")])
             
             # Performance assertions for cleanup
             assert successful_closes == num_docs, "Not all documents were closed successfully"

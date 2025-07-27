@@ -108,7 +108,8 @@ class TestConcurrentDocumentOperations:
             # Verify all operations succeeded
             assert len(results) == num_docs
             for i, result in enumerate(results):
-                assert result == f"doc-{i+1}"
+                assert result["success"] is True
+                assert result["doc_id"] == f"doc-{i+1}"
             
             # Verify operations were concurrent (should be faster than sequential)
             assert end_time - start_time < num_docs * 0.1  # Much faster than sequential
@@ -130,7 +131,7 @@ class TestConcurrentDocumentOperations:
                 for i in range(5)
             ]
             create_results = await asyncio.gather(*create_tasks)
-            doc_ids = create_results  # Handler returns doc_id directly
+            doc_ids = [result["doc_id"] for result in create_results]  # Extract doc_id from result dict
             
             # Then perform concurrent text operations
             text_tasks = []
@@ -192,10 +193,10 @@ class TestConcurrentDocumentOperations:
             results = await asyncio.gather(*mixed_tasks, return_exceptions=True)
             
             # Count successful operations
-            # Create operations return doc_id strings, others return dicts or None
-            successful_creates = sum(1 for r in results[:3] if isinstance(r, str))
+            # All operations now return dicts with success status
+            successful_creates = sum(1 for r in results[:3] if isinstance(r, dict) and r.get("success"))
             successful_inserts = sum(1 for r in results[3:6] if isinstance(r, dict) and r.get("success"))
-            successful_saves = sum(1 for r in results[6:] if r is None)  # save returns None
+            successful_saves = sum(1 for r in results[6:] if isinstance(r, dict) and r.get("success"))
             
             # At least the create operations should succeed
             assert successful_creates >= 3
@@ -225,8 +226,8 @@ class TestConcurrentDocumentOperations:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             
             # Count successful and failed operations
-            successful = sum(1 for r in results if isinstance(r, str))  # Successful returns doc_id string
-            failed = sum(1 for r in results if isinstance(r, Exception))
+            successful = sum(1 for r in results if isinstance(r, dict) and r.get("success"))  # Successful returns dict with success=True
+            failed = sum(1 for r in results if isinstance(r, dict) and not r.get("success"))  # Failed returns dict with success=False
             
             # Should have 4 successful and 1 failed
             assert successful >= 4
@@ -253,7 +254,7 @@ class TestConcurrentDocumentOperations:
             
             # Create a document first
             create_result = await server._handle_create_document(title="Test Doc")
-            doc_id = create_result  # Handler returns doc_id directly
+            doc_id = create_result["doc_id"]  # Extract doc_id from result dict
             
             # Perform multiple operations on the same document
             tasks = [
@@ -321,7 +322,8 @@ class TestConcurrentDocumentOperations:
             assert len(results) == 5
             
             for result in results:
-                assert isinstance(result, str)  # Handler returns doc_id string
+                assert isinstance(result, dict)  # Handler returns dict with success and doc_id
+                assert result["success"] is True
     
     @pytest.mark.asyncio
     async def test_concurrent_document_lifecycle(self, mock_config_manager, mock_word_controller):
@@ -337,8 +339,9 @@ class TestConcurrentDocumentOperations:
                 create_result = await server._handle_create_document(
                     title=f"Lifecycle Doc {doc_index}"
                 )
-                assert isinstance(create_result, str)  # Handler returns doc_id directly
-                doc_id = create_result
+                assert isinstance(create_result, dict)  # Handler returns dict with success and doc_id
+                assert create_result["success"] is True
+                doc_id = create_result["doc_id"]
                 
                 # Edit
                 edit_result = await server._handle_insert_text(
