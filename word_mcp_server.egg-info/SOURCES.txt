@@ -4,6 +4,7 @@ MANIFEST.in
 README.md
 pyproject.toml
 requirements.txt
+setup.cfg
 setup.py
 docs/API_REFERENCE.md
 docs/CLAUDE_INTEGRATION.md
